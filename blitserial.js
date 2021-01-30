@@ -18,44 +18,29 @@ function timeout(ms) {
     return new Promise(resolve => setTimeout(resolve, ms));
 }
 
-async function run(data, headerlen) {
+
+async function run(data) {
     port = await getport();
-
-    await port.open({'baudRate': 9600});
-
-    console.log(headerlen);
+    await port.open({'baudRate': 115200, 'flowControl': 'hardware'});
     console.log("port open");
     writer = await port.writable.getWriter();
-    console.log("writer got", writer);
-    x = await writer.write(data.slice(0, headerlen));
-    console.log(data.slice(0, headerlen));
-    for (z=headerlen;z<data.byteLength; z+=64) {
-        x = await writer.write(data.slice(z, z + 64));
-        console.log(data.slice(z, z + 64));
-        await timeout(10);
-    }
-    console.log("written", x);
-    x = await writer.releaseLock();
-    await timeout(50);
-    console.log("release", x);
-    x = await port.close();
-    console.log("port closed", x);
+    await writer.write(data);
+    await writer.close();
+    await port.close();
+    console.log("port closed");
 }
 
 
 async function get(blit) {
-    return fetch(blit).then(response => response.arrayBuffer());
+    response = await fetch(blit);
+    buffer = await response.arrayBuffer();
+    return new Uint8Array(buffer);
 }
 
 
-async function send_file(blit, dest, dir) {
+async function send_file(blit, mode, dir) {
 
-    if (dest == "sd") {
-        mode = "SAVE";
-        headerlen = 30;
-    } else {
-        mode = "PROG";
-        headerlen = 29;
+    if (mode == "PROG") {
         dir = "";
     }
 
@@ -64,12 +49,10 @@ async function send_file(blit, dest, dir) {
     const lastItem = blit.substring(blit.lastIndexOf('/') + 1);
 
     data = await get(blit)
-        .then(buffer => {
-            const data = new Uint8Array(buffer);
+        .then(data => {
             const enc = new TextEncoder("ascii");
             const cmd = "32BL" + mode + dir + lastItem + "\x00" + data.byteLength + "\x00";
-            header = enc.encode(cmd);
-            console.log(cmd, header.byteLength, data.byteLength);
+            const header = enc.encode(cmd);
             tmp = new Uint8Array(header.byteLength + data.byteLength);
             tmp.set(header, 0);
             tmp.set(data, header.byteLength);
@@ -78,7 +61,7 @@ async function send_file(blit, dest, dir) {
 
     console.log(data.byteLength);
 
-    await run(data, headerlen);
+    await run(data);
 
     console.log("saved " + lastItem);
 
@@ -87,10 +70,11 @@ async function send_file(blit, dest, dir) {
 
 function save(blit) {
     console.log("saving", blit);
-    send_file(blit, "sd", "/");
+    send_file(blit, "SAVE", "/");
 }
+
 
 function flash(blit) {
     console.log("flashing", blit);
-    send_file(blit, "flash", "");
+    send_file(blit, "PROG", "");
 }
